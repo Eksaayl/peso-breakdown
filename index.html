@@ -32,15 +32,18 @@
   <div class="max-w-lg mx-auto px-4 py-6 sm:py-8">
     <!-- Header -->
     <header class="text-center mb-8">
-      <h1 class="text-2xl sm:text-3xl font-bold text-peso-pink tracking-tight">Philippine Peso</h1>
-      <p class="text-lg font-semibold text-peso-gold mt-1">Bill Breakdown → ₱5,000</p>
-      <p class="text-sm text-gray-500 mt-2">Enter total amount per denomination. We'll build exactly ₱5,000 using smallest bills first, with at least one of each.</p>
+      <h1 class="text-2xl sm:text-3xl font-bold text-peso-pink tracking-tight">Cash Breakdown Calculator</h1>
     </header>
 
     <!-- Inputs Card -->
     <section class="bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-amber-100 p-5 sm:p-6 mb-6">
       <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Your stock (quantity per denomination)</h2>
       <div class="grid grid-cols-2 gap-4">
+        <label class="flex flex-col gap-1">
+          <span class="text-sm font-medium text-gray-600">₱1,000</span>
+          <input type="number" id="amt-1000" min="0" step="1" value="0" placeholder="0"
+            class="input-field w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-peso-pink focus:ring-2 focus:ring-pink-200 outline-none transition text-lg touch-manipulation">
+        </label>
         <label class="flex flex-col gap-1">
           <span class="text-sm font-medium text-gray-600">₱500</span>
           <input type="number" id="amt-500" min="0" step="1" value="0" placeholder="0"
@@ -94,18 +97,30 @@
       <p id="error-text"></p>
     </div>
 
-    <!-- Result card -->
-    <section id="result-card" class="hidden bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-amber-100 overflow-hidden">
+    <!-- Output 1: Cash Fund (₱5,000) card -->
+    <section id="result-card" class="hidden bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-amber-100 overflow-hidden mb-6">
       <div class="bg-peso-pink text-white px-5 py-3">
-        <h2 class="font-semibold">Change breakdown (reverse greedy)</h2>
-        <p class="text-sm text-pink-100">Smallest denominations first, at least one of each</p>
+        <h2 class="font-semibold">Cash Fund (₱5,000)</h2>
       </div>
       <ul id="breakdown-list" class="divide-y divide-amber-100 p-5">
         <!-- Filled by JS -->
       </ul>
       <div class="bg-amber-50 border-t border-amber-200 px-5 py-4 flex justify-between items-center">
-        <span class="font-semibold text-gray-700">Total calculated</span>
+        <span class="font-semibold text-gray-700">Total</span>
         <span id="total-calc" class="text-xl font-bold text-peso-pink">₱5,000</span>
+      </div>
+    </section>
+
+    <!-- Cash Sales (excess stock) -->
+    <section id="excess-card" class="hidden bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-amber-100 overflow-hidden">
+      <div class="bg-gray-600 text-white px-5 py-3">
+        <h2 class="font-semibold">Cash Sales</h2>
+      </div>
+      <ul id="excess-list" class="divide-y divide-amber-100 p-5">
+      </ul>
+      <div class="bg-amber-50 border-t border-amber-200 px-5 py-4 flex justify-between items-center">
+        <span class="font-semibold text-gray-700">Total</span>
+        <span id="excess-total" class="text-xl font-bold text-peso-pink">₱0</span>
       </div>
     </section>
   </div>
@@ -113,6 +128,7 @@
   <script>
     const TARGET = 5000;
     const DENOMS = [
+      { value: 1000, id: 'amt-1000' },
       { value: 500, id: 'amt-500' },
       { value: 200, id: 'amt-200' },
       { value: 100, id: 'amt-100' },
@@ -136,41 +152,101 @@
       return stock.reduce((sum, s) => sum + s.value * s.qty, 0);
     }
 
-    /**
-     * Reverse greedy: reach exactly TARGET with at least one of each denomination.
-     * 1. Reserve 1 of each (if available). Remaining = TARGET - sum(reserved).
-     * 2. Fill the rest using smallest denominations first from remaining stock.
-     */
-    function computeBreakdown() {
+    function computeCashFund() {
       const stock = getStock();
-      const reserved = stock.map(s => ({
-        value: s.value,
-        qty: Math.min(1, s.qty)
-      }));
-      const reservedSum = reserved.reduce((sum, r) => sum + r.value * r.qty, 0);
-      let remaining = TARGET - reservedSum;
+      const byValue = {};
+      DENOMS.forEach(d => {
+        const s = stock.find(x => x.value === d.value);
+        byValue[d.value] = { value: d.value, qty: 0, available: s ? s.qty : 0 };
+      });
 
-      const used = stock.map((s, i) => ({
-        value: s.value,
-        qty: reserved[i].qty,
-        available: s.qty
-      }));
+      let remaining = TARGET;
 
-      if (remaining < 0) return null;
+      // ——— Step A: Maximize Coins (₱1 mult of 5; ₱5 mult of 2; ₱10 & ₱20 max) ———
+      const usable1Pieces = Math.floor((byValue[1].available || 0) / 5) * 5;
+      const use1 = Math.min(usable1Pieces, remaining);
+      byValue[1].qty = use1;
+      remaining -= use1 * 1;
 
-      const smallFirst = [...DENOMS].reverse();
-      for (const d of smallFirst) {
-        const u = used.find(x => x.value === d.value);
-        const alreadyUsed = u.qty;
-        const canUse = u.available - alreadyUsed;
-        const need = Math.floor(remaining / d.value);
-        const add = Math.min(canUse, need);
-        u.qty += add;
-        remaining -= add * d.value;
+      const usable5Pieces = Math.floor((byValue[5].available || 0) / 2) * 2;
+      let use5 = Math.min(usable5Pieces, Math.floor(remaining / 5));
+      byValue[5].qty = use5;
+      remaining -= use5 * 5;
+
+      let use10 = Math.min(byValue[10].available || 0, Math.floor(remaining / 10));
+      byValue[10].qty = use10;
+      remaining -= use10 * 10;
+
+      let use20 = Math.min(byValue[20].available || 0, Math.floor(remaining / 20));
+      byValue[20].qty = use20;
+      remaining -= use20 * 20;
+
+      // ——— Compatibility Check (Bridge to 50): coin total must be multiple of 50 ———
+      let coinTotal = use1 * 1 + use5 * 5 + use10 * 10 + use20 * 20;
+      let r = coinTotal % 50;
+      while (r > 0 && use20 > 0 && r >= 20) {
+        use20 -= 1;
+        byValue[20].qty = use20;
+        remaining += 20;
+        r -= 20;
+      }
+      while (r > 0 && use10 > 0 && r >= 10) {
+        use10 -= 1;
+        byValue[10].qty = use10;
+        remaining += 10;
+        r -= 10;
+      }
+      while (r > 0 && use5 > 0 && r >= 5) {
+        use5 -= 1;
+        byValue[5].qty = use5;
+        remaining += 5;
+        r -= 5;
+      }
+
+      // ——— Step B: Bill Fill — Mid-Range first (₱100 → ₱50 → ₱200), ₱500 only if needed ———
+      const midBills = [100, 50, 200];
+      const midWithStock = midBills.filter(v => (byValue[v].available || 0) > 0);
+      while (remaining > 0 && midWithStock.length > 0) {
+        let added = false;
+        for (const v of midWithStock) {
+          if (remaining >= v && byValue[v].qty < byValue[v].available) {
+            byValue[v].qty += 1;
+            remaining -= v;
+            added = true;
+            if (remaining === 0) break;
+          }
+        }
+        if (!added) break;
+      }
+      // Only use ₱500 if mid-range exhausted and target not yet met
+      if (remaining > 0 && (byValue[500].available || 0) > 0) {
+        while (remaining >= 500 && byValue[500].qty < byValue[500].available) {
+          byValue[500].qty += 1;
+          remaining -= 500;
+        }
+      }
+
+      // ——— Last Resort: shaved-off ₱1 coins to close gap ———
+      if (remaining > 0 && remaining <= 4) {
+        const leftover1 = (byValue[1].available || 0) - byValue[1].qty;
+        const bridge = Math.min(leftover1, remaining);
+        byValue[1].qty += bridge;
+        remaining -= bridge;
       }
 
       if (remaining !== 0) return null;
-      return used;
+
+      const cashFund = DENOMS.map(d => ({ value: d.value, qty: byValue[d.value].qty }));
+      const excessStock = DENOMS.map(d => ({
+        value: d.value,
+        qty: (byValue[d.value].available || 0) - byValue[d.value].qty
+      }));
+
+      return { cashFund, excessStock };
+    }
+
+    function formatBreakdownRow(b) {
+      return `<li class="py-3 flex justify-between items-center text-base"><span class="text-gray-600">${b.qty} × ₱${b.value.toLocaleString()}</span><span class="font-medium">₱${(b.qty * b.value).toLocaleString()}</span></li>`;
     }
 
     function showError(msg) {
@@ -179,45 +255,42 @@
       text.textContent = msg;
       box.classList.remove('hidden');
       document.getElementById('result-card').classList.add('hidden');
+      document.getElementById('excess-card').classList.add('hidden');
     }
 
-    function showResult(breakdown) {
+    function showCashFundResult(result) {
       document.getElementById('error-box').classList.add('hidden');
-      const list = document.getElementById('breakdown-list');
-      list.innerHTML = breakdown
-        .filter(b => b.qty > 0)
-        .sort((a, b) => a.value - b.value)
-        .map(b => `<li class="py-3 flex justify-between items-center text-base"><span class="text-gray-600">${b.qty} × ₱${b.value.toLocaleString()}</span><span class="font-medium">₱${(b.qty * b.value).toLocaleString()}</span></li>`)
-        .join('');
+
+      const cashFund = result.cashFund.filter(b => b.qty > 0).sort((a, b) => a.value - b.value);
+      document.getElementById('breakdown-list').innerHTML = cashFund.map(formatBreakdownRow).join('');
       document.getElementById('total-calc').textContent = '₱5,000';
       document.getElementById('result-card').classList.remove('hidden');
+
+      const excess = result.excessStock.filter(b => b.qty > 0).sort((a, b) => a.value - b.value);
+      document.getElementById('excess-list').innerHTML = excess.length
+        ? excess.map(formatBreakdownRow).join('')
+        : '<li class="py-3 text-gray-500 text-sm">No excess (all stock used in Cash Fund)</li>';
+      const excessTotal = result.excessStock.reduce((sum, b) => sum + b.value * b.qty, 0);
+      document.getElementById('excess-total').textContent = '₱' + excessTotal.toLocaleString();
+      document.getElementById('excess-card').classList.remove('hidden');
     }
 
     document.getElementById('calculate').addEventListener('click', () => {
       const stock = getStock();
       const total = totalStock(stock);
 
-      const minOneEachSum = DENOMS.reduce((s, d) => s + d.value, 0);
       if (total < TARGET) {
-        showError(`Total stock is ₱${total.toLocaleString()}, which is less than the target ₱5,000. Add more bills to continue.`);
-        return;
-      }
-      if (stock.some(s => s.qty === 0)) {
-        showError('You must have at least one of each denomination (₱500 down to ₱1). Please add the missing denominations.');
-        return;
-      }
-      if (minOneEachSum > TARGET) {
-        showError('The target ₱5,000 is less than the minimum needed for one of each denomination (₱886). This target cannot be met.');
+        showError('Total stock is insufficient to reach ₱5,000.');
         return;
       }
 
-      const breakdown = computeBreakdown();
-      if (!breakdown) {
-        showError("Could not form exactly ₱5,000 with your current stock while using at least one of each. Try adjusting quantities (e.g. more small bills).");
+      const result = computeCashFund();
+      if (!result) {
+        showError("Could not form exactly ₱5,000 with your current stock (excluding ₱1,000). Try adjusting quantities.");
         return;
       }
 
-      showResult(breakdown);
+      showCashFundResult(result);
     });
   </script>
 </body>
